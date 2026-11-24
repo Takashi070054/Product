@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ja">
+<head>
+ <meta charset="utf-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+ <meta name="referrer" content="no-referrer">
+ <title>納品伝票を撮影</title>
+ <style>
+  :root{font:16px system-ui,sans-serif;color:#163b51;background:#edf8fe}
+  *{box-sizing:border-box}[hidden]{display:none!important}
+  body{margin:0;padding:clamp(12px,3vw,26px)}
+  main{max-width:760px;margin:auto}
+  h1{margin:0 0 8px;font-size:clamp(1.25rem,3.5vw,1.7rem)}
+  p{line-height:1.55;margin:8px 0 12px}
+  .stage{position:relative;background:#18201d;border-radius:12px;overflow:hidden;width:fit-content;max-width:100%;margin:auto}
+  video,canvas{display:block;max-width:100%;max-height:62dvh;width:auto;height:auto}
+  .guide{position:absolute;inset:8%;border:2px solid white;border-radius:8px;box-shadow:0 0 0 100vmax #09130d55;pointer-events:none;text-align:center}
+  .guide span{display:inline-block;background:#12394de8;padding:4px 8px;color:white}
+  .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  button{font:inherit;min-height:44px;border-radius:8px;border:1px solid #a9c8d9;background:white;padding:8px 14px;color:inherit}
+  .primary{background:#38A1DB;border-color:#38A1DB}
+  button:disabled{opacity:.55}
+ </style>
+</head>
+<body>
+ <main>
+  <h1>納品伝票を撮影</h1>
+  <p>伝票を1枚ずつ平らに置き、文字の上を画面の上にしてください。影や反射を避け、四隅と合計欄が入るように真上から撮ってください。</p>
+  <p>店舗日報で伝票を読み取る際に画像をGemini APIへ送信します。無料枠では、送信データがサービス改善に使われる場合があります。</p>
+  <div id="stage" class="stage" hidden>
+   <video id="preview" autoplay muted playsinline></video>
+   <canvas id="photo" aria-label="撮影した伝票" hidden></canvas>
+   <div id="guide" class="guide" aria-hidden="true"><span>伝票の四隅を枠の内側に</span></div>
+  </div>
+  <p id="status" role="status" aria-live="polite">店舗日報から開いてください。</p>
+  <div class="actions">
+   <button id="start" class="primary" type="button" hidden>カメラを開始</button>
+   <button id="capture" class="primary" type="button" hidden>撮影</button>
+   <button id="use" class="primary" type="button" hidden>この写真を使う</button>
+   <button id="retake" type="button" hidden>撮り直す</button>
+   <button id="close" type="button">閉じる</button>
+  </div>
+ </main>
+ <script>
+  'use strict';
+  const byId=id=>document.getElementById(id);
+  const params=new URLSearchParams(location.hash.slice(1));
+  const token=params.get('token'),origin=params.get('origin');
+  const parentWindow=window.opener;
+  const valid=parentWindow&&/^[a-f0-9-]{36}$/.test(token||'')&&
+   /^https:\/\/(?:script\.google\.com|(?:[a-z0-9-]+-)?script\.googleusercontent\.com)$/.test(origin||'');
+  const video=byId('preview'),photo=byId('photo'),status=byId('status');
+  let stream=null,sequence=0,ackTimer=0;
+  function stop(){
+   sequence++;
+   stream?.getTracks().forEach(track=>track.stop());
+   stream=null;
+   video.srcObject=null;
+  }
+  function send(type,blob){
+   if(valid)parentWindow.postMessage({type,token,blob},origin);
+  }
+  async function start(){
+   const current=++sequence;
+   byId('start').disabled=true;
+   status.textContent='背面カメラを起動しています。';
+   try{
+    if(!navigator.mediaDevices?.getUserMedia)throw Error('利用不可');
+    const next=await navigator.mediaDevices.getUserMedia({
+     audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1440}}
+    });
+    if(current!==sequence){next.getTracks().forEach(track=>track.stop());return;}
+    stream=next;
+    video.srcObject=stream;
+    await video.play();
+    if(current!==sequence)return;
+    byId('start').hidden=true;
+    byId('stage').hidden=false;
+    byId('capture').hidden=false;
+    status.textContent='ピントを確認して「撮影」を押してください。';
+   }catch(error){
+    if(current!==sequence)return;
+    stop();
+    status.textContent='ガイド付き撮影を利用できません。店舗日報に戻って標準カメラを使います。';
+    send('receipt-camera-unavailable');
+   }finally{byId('start').disabled=false;}
+  }
+  function showPhoto(show){
+   video.hidden=show;photo.hidden=!show;
+   byId('guide').hidden=show;byId('capture').hidden=show;
+   byId('use').hidden=!show;byId('retake').hidden=!show;
+  }
+  byId('start').onclick=start;
+  byId('capture').onclick=()=>{
+   if(!video.videoWidth||!video.videoHeight)return;
+   photo.width=video.videoWidth;photo.height=video.videoHeight;
+   photo.getContext('2d').drawImage(video,0,0);
+   showPhoto(true);
+   status.textContent='小さな数字が読めるか確認してください。';
+  };
+  byId('retake').onclick=()=>{
+   showPhoto(false);
+   status.textContent='ピントを確認して「撮影」を押してください。';
+  };
+  byId('use').onclick=()=>{
+   const button=byId('use');
+   button.disabled=true;
+   photo.toBlob(blob=>{
+    if(!blob||blob.size>8*1024*1024){
+     button.disabled=false;
+     status.textContent='写真を作成できませんでした。撮り直してください。';
+     return;
+    }
+    status.textContent='写真を店舗日報に戻しています。';
+    send('receipt-camera-photo',blob);
+    ackTimer=setTimeout(()=>{
+     button.disabled=false;
+     status.textContent='店舗日報から応答がありません。店舗日報を開いたまま、もう一度押してください。';
+    },6000);
+   },'image/jpeg',.92);
+  };
+  window.addEventListener('message',event=>{
+   if(!valid||event.origin!==origin||event.source!==parentWindow||event.data?.token!==token||event.data.type!=='receipt-camera-result')return;
+   clearTimeout(ackTimer);
+   if(event.data.ok){
+    stop();
+    status.textContent='写真を渡しました。店舗日報に戻ってください。';
+    byId('use').hidden=true;byId('retake').hidden=true;
+    window.close();
+   }else{
+    byId('use').disabled=false;
+    status.textContent='写真を追加できませんでした。店舗日報の画面をご確認ください。';
+   }
+  });
+  byId('close').onclick=()=>{send('receipt-camera-cancel');stop();window.close();};
+  window.addEventListener('pagehide',stop);
+  if(valid){
+   send('receipt-camera-ready');
+   byId('start').hidden=false;
+   start();
+  }
+ </script>
+</body>
+</html>

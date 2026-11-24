@@ -1,0 +1,119 @@
+
+<style>
+nav{overflow-x:auto;justify-content:flex-start}nav button{flex:0 0 auto}
+.ext-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.ext-line{padding:12px 0;border-bottom:1px solid var(--line)}.ext-line input,.ext-line select{min-height:44px;padding:8px}
+.ext-fields{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:8px}.ext-fields label{font-size:13px;margin:8px 0}.ext-fields input{min-width:0}
+.ext-scroll{overflow:auto}.ext-table{border-collapse:collapse;width:100%;font-size:14px}.ext-table td,.ext-table th{padding:10px;border-bottom:1px solid var(--line);text-align:left}
+.ext-table input{min-width:95px}#extOcrText{width:100%;min-height:130px}.ext-warning{color:#a41420;white-space:pre-line}.ext-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+.ext-check input{width:auto;min-height:24px}.ext-badge{background:#fff0cb;padding:10px;font-weight:bold}.ext-hidden[hidden]{display:none}
+.save-actions[hidden],#extInvoicePanel[hidden],#extSimplePurchase[hidden],#extOcrPanel[hidden]{display:none}.ext-input-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.ext-input-actions button[aria-pressed="true"]{background:var(--accent-soft);font-weight:700}
+#extReceiptDialog{width:min(1200px,96vw);max-width:96vw;max-height:94dvh;padding:0;overflow:auto}
+.ext-dialog-top,.ext-dialog-bottom{position:sticky;background:white;padding:14px 18px;z-index:1;border-bottom:1px solid var(--line)}
+.ext-dialog-top{top:0;display:flex;align-items:center;justify-content:space-between;gap:12px}.ext-dialog-bottom{bottom:0;border-top:1px solid var(--line)}
+.ext-review-layout{display:grid;grid-template-columns:minmax(220px,.8fr) minmax(0,1.4fr);gap:18px;padding:18px}
+#extReviewPreview{width:100%;height:52vh;border:1px solid var(--line)}#extReviewRaw{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px}
+#extReviewLines input{min-width:85px;min-height:42px;padding:6px}#extReviewLines input[data-key="name"]{min-width:150px}
+#extReviewHead th{white-space:nowrap}
+#extReviewLines select[data-key="rate"]{min-width:66px}
+#extReviewLines select[data-key="category"]{min-width:82px}
+#extReceiptDialog .ext-missing{border:2px solid #c33442;background:#fff0f1}
+#extBatchRows input[type="checkbox"],#extReviewLines input[type="checkbox"]{width:24px;min-width:24px;min-height:24px}
+#extReviewLines input[type="checkbox"][hidden],#extLines input[type="checkbox"][hidden]{display:none}
+@media(max-width:900px){.ext-review-layout{grid-template-columns:minmax(0,1fr)}#extReviewPreview{height:30vh}}
+#extCameraDialog{width:min(92vw,42rem);max-height:92dvh;border:0;border-radius:12px;padding:1rem}
+#extCameraDialog::backdrop{background:#0009}
+#extCameraDialog [hidden]{display:none}
+#extReviewGuests[hidden]{display:none}
+#extReceiptDialog.ext-no-unit #extReviewHead th:nth-child(7),#extReceiptDialog.ext-no-unit #extReviewLines td:nth-child(7){display:none}
+#extLines.ext-no-unit .ext-unit-field{display:none}
+#extManualPurchase[hidden],#extPurchaseOcrHost[hidden],#extCloseOcr[hidden]{display:none}
+</style>
+<div class="ext-badge">拡張テスト版 ／ LINE送信停止中</div>
+<div id="extInvoicePanel" hidden>
+ <div class="card"><h2>伝票・品目</h2>
+ <div class="ext-grid"><label>仕入先<input id="extSupplier" list="extSuppliers"></label><label>伝票番号<input id="extInvoiceNumber"></label></div>
+ <label>入力方法<select id="extLegacy"><option value="">新しい伝票</option></select></label>
+ <div class="ext-grid"><label>種類<select id="extType"><option value="delivery">納品</option><option value="return">容器回収・返金</option></select></label><label>税区分<select id="extTaxMode"><option value="gross">税込</option><option value="net">税別・税額あり</option><option value="monthly">税別・月末加算</option></select></label></div>
+ <div class="ext-grid"><label>伝票に印字された合計<input id="extTotal" type="number" min="0" step="0.01"></label><label>税額（税別・税額ありの場合）<input id="extTax" type="number" min="0" step="0.01"></label></div>
+ <label>調整額（値引きはマイナス）<input id="extAdjustment" type="number" step="0.01" value="0"></label>
+ <div id="extLines"></div><button type="button" id="extAddLine">＋ 品目を追加</button>
+ <label>差額・調整の理由<textarea id="extReason"></textarea></label>
+ <p id="extInvoiceFiles"></p>
+ <div class="ext-actions"><button type="button" id="extSaveManualInvoice">伝票を保存</button><button id="extNewInvoice">新しい伝票</button><button id="extCancelInvoice">この伝票を取消</button></div>
+ </div>
+ <div class="card"><h3>この日の伝票</h3><div id="extInvoiceList"></div></div>
+ <div class="card"><h3>月末の税額</h3><p class="hint">月末加算の伝票分のみ。食材・飲料・雑費を分けて入力します。</p>
+ <label>対象月<input id="extTaxMonth" type="month"></label>
+ <div class="ext-grid"><label>食材税額<input id="extFoodTax" type="number" min="0"></label><label>飲料税額<input id="extDrinkTax" type="number" min="0"></label></div>
+ <label>雑費税額<input id="extMiscTax" type="number" min="0"></label><label>備考<input id="extTaxNote"></label><button id="extSaveTax">月末税額を保存</button>
+ </div>
+</div>
+
+<div id="extOcrPanel" hidden><div class="card">
+ <button id="extCloseOcr" type="button">読み取りを閉じる</button>
+ <h3 id="extOcrHeading">帳票の読み取り</h3><input id="extOcrKind" type="hidden" value="invoice">
+ <div id="extInvoiceCapture">
+  <button id="extOpenCamera" type="button">伝票読取</button>
+  <input id="extCamera" type="file" accept="image/*" capture="environment" hidden>
+  <p id="extCaptureStatus" class="hint" role="status"></p>
+ </div>
+ <label>写真・PDFを追加<input id="extUpload" type="file" accept="image/jpeg,image/png,application/pdf" multiple></label>
+ <p class="hint">日付が違う伝票も一緒に添付できます。1ファイルずつ別の伝票候補にし、複数枚で1件のものは読み取り後にまとめます。</p>
+ <button id="extReadOcr" type="button">保存して読み取る</button>
+ <p id="extBatchProgress" role="status" aria-live="polite"></p>
+ <div class="ext-scroll"><table class="ext-table"><thead><tr><th>まとめる</th><th>原本</th><th>納品日</th><th>仕入先</th><th>印字合計</th><th>状態・処理時間</th><th>確認</th></tr></thead><tbody id="extBatchRows"></tbody></table></div>
+ <div class="ext-actions"><button id="extMergeReceipts" type="button">選択したページを1伝票にまとめる</button><button id="extRetryReceipts" type="button">失敗・明細なしを読み直す</button><button id="extSaveBatch" type="button">確認済みの伝票をまとめて保存</button></div>
+ <p id="extBatchNotice" class="ext-warning" role="status"></p>
+</div></div>
+<dialog id="extCameraDialog" aria-label="伝票の撮影">
+ <p id="extCameraMessage" role="status"></p>
+ <div class="ext-actions">
+  <button id="extNativeCamera" type="button" hidden>標準カメラで撮る</button>
+  <button id="extCloseCamera" type="button">閉じる</button>
+ </div>
+</dialog>
+<dialog id="extReceiptDialog" aria-labelledby="extReceiptDialogTitle">
+ <div class="ext-dialog-top"><h2 id="extReceiptDialogTitle">読み取り内容を確認</h2><button id="extReceiptClose" type="button">閉じる</button></div>
+ <div class="ext-review-layout">
+  <div><label>原本<select id="extReviewSource"></select></label><div id="extReviewLinks"></div><div id="extReviewRetakeActions" hidden><p class="hint">数量や単価が読めないときは、影や反射を避け、四隅と合計欄を入れて真上から撮り直してください。</p><button id="extReviewRetake" type="button">写真を撮りなおす</button></div><iframe id="extReviewPreview" title="添付した伝票の原本" loading="lazy" referrerpolicy="no-referrer"></iframe></div>
+  <div>
+   <div class="ext-grid"><label>日付<input id="extReviewDate" type="date"></label><label id="extReviewSupplierLabel">仕入先<input id="extReviewSupplier" list="extSuppliers"></label></div>
+   <div id="extReviewInvoiceFields">
+    <label>伝票番号<input id="extReviewNumber"></label>
+    <div class="ext-grid"><label>種類<select id="extReviewType"><option value="">選択</option><option value="delivery">納品</option><option value="return">容器回収・返金</option></select></label><label>税区分<select id="extReviewTaxMode"><option value="">選択</option><option value="gross">税込</option><option value="net">税別・税額あり</option><option value="monthly">税別・月末加算</option></select></label></div>
+    <label>調整額（値引きはマイナス）<input id="extReviewAdjustment" type="number" step="any"></label>
+   </div>
+   <div class="ext-grid"><label>印字合計<input id="extReviewTotal" type="number" min="0" step="any"></label><label>消費税<input id="extReviewTax" type="number" min="0" step="any"></label></div>
+   <div id="extReviewGuests" class="ext-grid"><label>総組数<input id="extReviewGroups" type="number" min="0" step="1"></label><label>人数<input id="extReviewPeople" type="number" min="0" step="1"></label></div>
+   <div class="ext-scroll"><table class="ext-table"><thead id="extReviewHead"></thead><tbody id="extReviewLines"></tbody></table></div>
+   <button id="extReviewAddLine" type="button">＋ 明細を追加</button><button id="extUnmergeReceipt" type="button" hidden>ページのまとめを解除</button>
+   <p id="extReviewDifference" role="status"></p>
+   <label id="extReviewReasonLabel">差額・調整の理由<textarea id="extReviewReason" rows="2"></textarea></label>
+   <p id="extReviewWarning" class="ext-warning"></p>
+   <details><summary>読み取った原文</summary><pre id="extReviewRaw"></pre></details>
+  </div>
+ </div>
+ <div class="ext-dialog-bottom"><p id="extReviewError" class="ext-warning" role="alert"></p><button id="extReviewConfirm" type="button">この伝票を確認済みにする</button></div>
+</dialog>
+<section id="棚卸" hidden><div class="card"><h2>月末棚卸</h2>
+ <label>対象月<input id="extStockMonth" type="month"></label><button id="extLoadStock">一覧を表示</button>
+ <p id="extStockState"></p><div class="ext-grid"><label>実施者<select id="extImplementer"><option value="">選択</option><option>高杉</option><option>荒川</option></select></label><label>確認者<select id="extReviewer"><option value="">選択</option><option>高杉</option><option>荒川</option></select></label></div>
+ <div class="ext-scroll"><table class="ext-table"><thead><tr><th>品目・仕入先</th><th>数量</th><th>単位</th><th>税込単価</th></tr></thead><tbody id="extStockRows"></tbody></table></div>
+ <label>既存在庫を追加<select id="extStockProduct"></select></label><button id="extAddStock">＋ 在庫品目</button>
+ <div class="ext-actions"><button data-stock="draft">下書き保存</button><button data-stock="refresh">最新の単価を反映</button><button data-stock="review">確認依頼</button><button data-stock="confirm">確認者として確定</button><button data-stock="return">差戻し</button><button data-stock="reopen">確定を再開</button></div>
+ </div>
+ <div class="card"><h3>品目・換算を登録</h3><div class="ext-grid"><label>仕入先<input id="extProductSupplier" list="extSuppliers"></label><label>商品コード<input id="extProductSku"></label></div>
+ <label>品名<input id="extProductName"></label><label>棚卸単位<input id="extProductUnit"></label>
+ <label>検索の別名（読点区切り）<input id="extProductAliases"></label>
+ <label>換算（JSON。例：1箱＝10kgなら {"箱":10}）<input id="extConversions" value="{}"></label>
+ <select id="extProductSelect"><option value="">新規登録</option></select><button id="extSaveProduct">品目を保存</button>
+ </div></section>
+<section id="AI" hidden><div class="card"><h2>AIアシスタント</h2>
+ <label>質問<textarea id="extQuestion" placeholder="直近のぶりの仕入れ値は？"></textarea></label>
+ <div id="extExamples" class="ext-actions"></div><button id="extAsk">質問する</button>
+ <p id="extAiState" aria-live="polite"></p><div id="extAnswer"></div>
+ </div><div class="card"><h3>定型検索</h3><p class="hint">AIが使えないときも検索できます。</p>
+ <label>検索<select id="extQueryName"><option value="latestPrices">直近の単価</option><option value="monthlyTotals">仕入先の3か月推移</option><option value="itemComparison">先月との品目比較</option></select></label>
+ <label>仕入先<input id="extQuerySupplier" list="extSuppliers"></label><label>品名<input id="extQueryItem"></label><button id="extQuery">検索</button>
+ </div></section>
+<datalist id="extSuppliers"></datalist>

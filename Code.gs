@@ -3,15 +3,16 @@ const PAYMENT = ['現金','クレジット','QR決済（Airペイ QR）','交通
 const FOOD = ['キタニ水産','maruyasu','プレコフーズ','西原'];
 const DRINK = ['島崎','カクヤス'];
 const CATEGORIES = ['通信費','人件費','カラオケ代','備品費','旅費交通費','食材費','飲料費','福利厚生費','研修費','修繕費','光熱費','雑費'];
-function doGet() { return HtmlService.createHtmlOutputFromFile('Index').setTitle('店舗日報').addMetaTag('viewport','width=device-width, initial-scale=1'); }
+function doGet() { return HtmlService.createTemplateFromFile('Index').evaluate().setTitle('店舗日報').addMetaTag('viewport','width=device-width, initial-scale=1'); }
 function date_(s) { if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) throw Error('日付を確認してください'); const d=new Date(s+'T12:00:00+09:00'); if(Utilities.formatDate(d,'Asia/Tokyo','yyyy-MM-dd')!==s) throw Error('日付が不正です'); return d; }
 function amount_(v) { const x=Number(v); if(v===null || v===undefined || !Number.isSafeInteger(x)||x<0) throw Error('金額・人数は0以上の整数で入力してください'); return x; }
 function text_(v) { const s=String(v||''); if(s.length>500) throw Error('文字数は500文字以内です'); return s; }
 function safe_(s) { return /^[=+\-@]/.test(s) ? "'"+s : s; }
 function locked_(fn) { const l=LockService.getScriptLock(); l.waitLock(30000); try{return fn();}finally{SpreadsheetApp.flush(); l.releaseLock();} }
 function month_(key,create) {
+ extEnvironment_();
  const p=PropertiesService.getScriptProperties(), id=p.getProperty('MONTH_'+key);
- if(id) return SpreadsheetApp.openById(id);
+ if(id) { extOwnedFile_(id); return SpreadsheetApp.openById(id); }
  if(!create) return null;
  const template=p.getProperty('TEMPLATE_ID'),folder=p.getProperty('FOLDER_ID');
  if(!template||!folder) throw Error('TEMPLATE_ID と FOLDER_ID を設定してください');
@@ -43,6 +44,8 @@ function vendorSuggestions_(currentBook) {
  return names;
 }
 function saveRecord(input) {
+ extEnvironment_();
+ if(input.tab==='仕入' && Object.values(extState_().invoice).some(i=>i.legacyLink&&i.legacyLink.recordId===input.id&&i.legacyLink.month===String(input.date).slice(0,7)))throw Error('納品伝票に連携済みです。納品伝票タブから修正してください');
  if(input.tab==='入金')return saveDeposit_(input);
  if(input.tab==='小口'&&Array.isArray(input.items))return savePettyBatch_(input);
  return locked_(()=> {
@@ -56,6 +59,7 @@ function saveRecord(input) {
    for(const [key] of RESERVATION_FIELDS){
     if(input[key]!==undefined)r[key]=amount_(input[key]);
    }
+   r.journalFiles=(input.journalFiles||[]).map(id=>{if(!extState_().file[id])throw Error('ジャーナル原本が見つかりません');return id;});
    r.reporter=text_(input.reporter).trim(); r.impression=text_(input.impression).trim();
    if(!r.reporter)throw Error('報告者を入力してください');
    if(r.tax>r.payments.reduce((s,x)=>s+x.amount,0))throw Error('消費税が総売上を超えています');
@@ -110,6 +114,7 @@ function lineMessage_(r) {
  return '◆売上報告◆\n営業日：'+r.date.replace(/-/g,'/')+'\n報告者：'+r.reporter+'\n売上金額(税込)：'+total.toLocaleString('ja-JP')+'円\n来店人数：'+r.guests+'人\n所感：'+(r.impression||'');
 }
 function deleteDetail(input) {
+ extEnvironment_();if(input.tab==='仕入'&&Object.values(extState_().invoice).some(i=>i.legacyLink&&i.legacyLink.recordId===input.id&&i.legacyLink.month===String(input.date).slice(0,7)))throw Error('連携済み伝票は納品伝票タブから修正してください');
  const {tab,date,id,itemIndex,expectedItems}=input;
  date_(date);
  if(!['小口','仕入'].includes(tab)||typeof id!=='string'||!id)throw Error('削除対象を確認してください');
@@ -145,6 +150,7 @@ function deleteDetail(input) {
  });
 }
 function notifySavedRecord_(record,sendLine,label) {
+ if(EXTENSION_TEST_BUILD || PropertiesService.getScriptProperties().getProperty('LINE_DISABLED')==='true')return {status:'skipped',message:label+'を保存しました（テスト環境：LINE停止中）'};
  if(sendLine===false){
   if(record.line.status!=='accepted')record.line.status='skipped';
   return {status:'skipped',message:label+'を保存しました（LINE投稿なし）'};
@@ -160,6 +166,7 @@ function notifySavedRecord_(record,sendLine,label) {
  return result;
 }
 function notifyLine_(r) {
+ if(EXTENSION_TEST_BUILD || PropertiesService.getScriptProperties().getProperty('LINE_DISABLED')==='true')return {status:'skipped',message:'テスト環境：LINE送信は停止中です'};
  if(r.line.status==='accepted')return {status:'accepted',message:'売上を保存しました（同じ報告はLINE受付済みです）'};
  const p=PropertiesService.getScriptProperties(),token=p.getProperty('LINE_CHANNEL_ACCESS_TOKEN'),group=p.getProperty('LINE_GROUP_ID');
  if(!token||!group)return {status:'unconfigured',message:'売上は保存済みです。LINE通知は未設定です。LINE_CHANNEL_ACCESS_TOKEN と LINE_GROUP_ID を設定してください。'};
@@ -187,6 +194,7 @@ function reportSheet_(b,records) {
  if(s.getLastRow()>1)s.getRange(2,1,s.getLastRow()-1,6).clearContent();
  const data=records.slice().sort((a,c)=>a.date.localeCompare(c.date)).map(r=>[r.date,safe_(r.reporter||''),r.payments.reduce((sum,x)=>sum+x.amount,0),r.guests,safe_(r.impression||''),({accepted:'LINE受付済み',failed:'通知失敗',pending:'未送信',unconfigured:'未設定'})[r.line&&r.line.status]||'未送信']);
  if(data.length){s.getRange(2,1,data.length,6).setValues(data);s.getRange(2,3,data.length,1).setNumberFormat('#,##0');s.getRange(2,5,data.length,1).setWrap(true);}
+ const journalCol=7+RESERVATION_FIELDS.length;s.getRange(1,journalCol).setValue('ジャーナル原本ID');if(records.length)s.getRange(2,journalCol,records.length,1).setValues(records.slice().sort((a,b)=>a.date.localeCompare(b.date)).map(r=>[(r.journalFiles||[]).join(',')]));
  const reservationRows=[RESERVATION_FIELDS.map(([,label])=>label),...records.slice().sort((a,b)=>a.date.localeCompare(b.date)).map(record=>RESERVATION_FIELDS.map(([key])=>record[key]??''))];
  s.getRange(1,7,reservationRows.length,RESERVATION_FIELDS.length).setValues(reservationRows);
  s.setFrozenRows(1);s.setColumnWidth(5,360);
@@ -200,7 +208,7 @@ function rebuild_(b,key) {
  const matrix=Array.from({length:31},()=>Array(9).fill(0)),cols={'キタニ水産':0,maruyasu:1,'プレコフーズ':2,'西原':3,'島崎':6,'カクヤス':7};
  pr.forEach(r=>r.items.forEach(x=>matrix[Number(r.date.slice(8))-1][cols[x.name]]+=x.amount));
  cr.sort((a,c)=>a.date.localeCompare(c.date)||a.id.localeCompare(c.id)).forEach((r,i)=>{const day=Number(r.date.slice(8));petty.getRange(i+3,2,1,5).setValues([[day,r.category,safe_(r.vendor),r.amount,safe_(r.note)]]);if(r.category==='食材費')matrix[day-1][4]+=r.amount;if(r.category==='飲料費')matrix[day-1][8]+=r.amount;});
- buy.getRange('C3:K33').setValues(matrix);
+ extOverlayPurchases_(b,key,matrix);
  // 小口補充は日次入力から除外。レジ金残高は表示対象外とし、誤った残高を出さない。
  dr.forEach(r=>dep.getRange(Number(r.date.slice(8))+4,5).setValue(r.amount));
  dep.getRange('F5:F35').clearContent();
